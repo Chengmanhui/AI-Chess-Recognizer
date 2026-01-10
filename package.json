@@ -1,16 +1,6 @@
-{
-  "type": "module",
-  "dependencies": {
-    "@google/genai": "^1.35.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "htm": "^3.1.1"
-  },
-  "devDependencies": {
-    "vite": "^5.4.0"
-  },
-  "scripts": {
-    "build": "vite build",
-    "dev": "vite"
-  }
+"dependencies": {
+  "@google/generative-ai": "^0.21.0",
+  "react": "^19.0.0",
+  "react-dom": "^19.0.0",
+  "htm": "^3.1.1"
 }
