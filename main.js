@@ -5,38 +5,55 @@ import { GoogleGenAI } from "@google/genai";
 
 const html = htm.bind(React.createElement);
 
-// 加咗 .trim() 嚟自動清除頭尾嘅換行或空格
+// 1. 讀取並徹底清潔 API Key
 const RAW_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const API_KEY = RAW_KEY ? RAW_KEY.trim() : null;
+const API_KEY = RAW_KEY ? RAW_KEY.trim() : "";
 
 async function recognizeBoard(base64Image) {
+  // 檢查 Key 長度是否正常 (Gemini Key 通常大約 39 位)
   if (!API_KEY || API_KEY.length < 20) {
-    throw new Error("API Key 讀取失敗或格式不正確。請確保 Vercel 設定中無多餘換行。");
+    throw new Error("讀取到的 API Key 長度不足，請檢查 Vercel 環境變量設定。");
   }
 
   try {
-    const genAI = new GoogleGenAI(API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // 2. 使用物件格式初始化 (最穩陣寫法)
+    const genAI = new GoogleGenAI({ apiKey: API_KEY });
+    
+    // 3. 獲取模型
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash" 
+    });
 
-    // 簡化 Prompt 嚟測試
+    const prompt = "請識別這張象棋照片，將結果轉換為 FEN 格式。請只返回 JSON：{ \"fen\": \"...\", \"explanation\": \"...\" }";
+
+    // 4. 發送請求
     const result = await model.generateContent({
       contents: [{
         role: "user",
         parts: [
           { inlineData: { data: base64Image.split(',')[1], mimeType: 'image/jpeg' } },
-          { text: "Output the Xiangqi FEN string for this board in JSON format: { \"fen\": \"...\" }" }
+          { text: prompt }
         ]
       }],
-      generationConfig: { responseMimeType: "application/json" }
+      generationConfig: {
+        responseMimeType: "application/json",
+      }
     });
 
     const response = await result.response;
-    return JSON.parse(response.text());
+    const text = response.text();
+    return JSON.parse(text);
   } catch (error) {
-    throw new Error("Gemini 錯誤: " + error.message);
+    console.error("SDK Error:", error);
+    // 捕捉常見嘅 Key 報錯
+    if (error.message.includes("API key not valid")) {
+      throw new Error("Gemini 判斷此 API Key 無效，請確認是否抄錯咗 Key。");
+    }
+    throw new Error("Gemini 報錯: " + error.message);
   }
 }
 
+// --- React 介面 ---
 function App() {
   const [status, setStatus] = useState('IDLE');
   const [image, setImage] = useState(null);
@@ -45,32 +62,8 @@ function App() {
   const fileInputRef = useRef(null);
 
   const processImage = async () => {
+    if (!image) return;
     setStatus('PROCESSING');
     setError(null);
     try {
-      const data = await recognizeBoard(image);
-      setResult(data);
-      setStatus('SUCCESS');
-    } catch (err) {
-      setError(err);
-      setStatus('ERROR');
-    }
-  };
-
-  return html`
-    <div className="p-8 max-w-md mx-auto font-sans">
-      <h1 className="text-2xl font-bold mb-6 text-red-800">象棋識別助手</h1>
-      <div className="border-2 border-dashed p-4 mb-4 text-center cursor-pointer" onClick=${() => fileInputRef.current.click()}>
-        ${image ? html`<img src=${image} />` : "撳我影相"}
-      </div>
-      <input type="file" ref=${fileInputRef} className="hidden" onChange=${(e) => {
-        const reader = new FileReader();
-        reader.onload = () => setImage(reader.result);
-        reader.readAsDataURL(e.target.files[0]);
-      }} />
-      
-      ${image && status === 'IDLE' && html`<button onClick=${processImage} className="w-full bg-red-600 text-white p-3 rounded">開始分析</button>`}
-      ${status === 'PROCESSING' && html`<p>AI 正在思考中...</p>`}
-      ${result && html`<div className="mt-4 p-4 bg-black text-green-400 rounded">FEN: ${result.fen}</div>`}
-      ${error && html`<p className="text-red-500 mt-4">${error}</p>`}
-    </div>
+      const data = await recognizeBoar
