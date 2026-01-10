@@ -97,4 +97,24 @@ function App() {
         ${result && html`
           <div className="mt-6 space-y-4">
             <div className="bg-gray-900 p-5 rounded-2xl shadow-inner border border-gray-700">
-              <p className="text-xs text-gray-500 uppercas
+              <p className="text-xs text-gray-500 uppercase font-bold mb-2">FEN 棋譜代碼</p>
+              <code className="text-green-400 font-mono text-sm break-all">${result.fen}</code>
+            </div>
+            <button 
+              onClick=${() => {navigator.clipboard.writeText(result.fen); alert('已複製 FEN');}}
+              className="w-full py-3 border-2 border-red-700 text-red-700 rounded-xl font-bold hover:bg-red-50"
+            >複製結果</button>
+          </div>
+        `}
+
+        ${error && html`
+          <div className="mt-4 p-4 bg-red-50 text-red-800 rounded-xl border border-red-100 text-sm">
+            <strong>發生錯誤：</strong> ${error}
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+createRoot(document.getElementById('root')).render(React.createElement(App));
