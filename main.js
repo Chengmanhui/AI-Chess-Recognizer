@@ -1,11 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import htm from 'htm';
-import { GoogleGenAI } from "@google/genai";
+// 注意：確保 package.json 入面用的是 @google/generative-ai
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const html = htm.bind(React.createElement);
 
-// 讀取並徹底清潔 API Key
+// 讀取 Vite 環境變數
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY ? import.meta.env.VITE_GEMINI_API_KEY.trim() : "";
 
 const SYSTEM_INSTRUCTION = `你是一個專業的象棋棋盤識別助手。
@@ -14,10 +15,14 @@ const SYSTEM_INSTRUCTION = `你是一個專業的象棋棋盤識別助手。
 只返回 JSON 格式，包含 fen 和 explanation 欄位。`;
 
 async function recognizeBoard(base64Image) {
-  if (!API_KEY) throw new Error("API Key 未設定，請檢查 Vercel 設定。");
+  // Debug 用：如果出錯，可以喺 F12 console 睇下 Key 入咗嚟未
+  if (!API_KEY) {
+    console.error("錯誤：VITE_GEMINI_API_KEY 是空的。請檢查 Vercel Environment Variables 設定。");
+    throw new Error("API Key 未設定，請檢查 Vercel 設定並重新部署 (Redeploy)。");
+  }
 
-  // 初始化 Gemini
-  const genAI = new GoogleGenAI(API_KEY);
+  // 初始化 Gemini (官方正確名稱)
+  const genAI = new GoogleGenerativeAI(API_KEY);
   const model = genAI.getGenerativeModel({ 
     model: "gemini-1.5-flash",
     systemInstruction: SYSTEM_INSTRUCTION 
@@ -29,16 +34,20 @@ async function recognizeBoard(base64Image) {
         role: "user",
         parts: [
           { inlineData: { data: base64Image.split(',')[1], mimeType: 'image/jpeg' } },
-          { text: "請識別這張象棋照片，並返回 FEN JSON。" }
+          { text: "請識別這張象棋照片，並返回 FEN JSON。只返回 JSON，不要有其他文字。" }
         ]
       }],
-      generationConfig: { responseMimeType: "application/json" }
+      generationConfig: { 
+        responseMimeType: "application/json",
+        temperature: 0.1 
+      }
     });
 
     const text = await result.response.text();
     return JSON.parse(text);
   } catch (error) {
-    throw new Error("Gemini 分析失敗: " + error.message);
+    console.error("Gemini 呼叫失敗:", error);
+    throw new Error("AI 分析失敗: " + (error.message || "未知錯誤"));
   }
 }
 
@@ -49,17 +58,33 @@ function App() {
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
+  // 初始化時檢查 API Key
+  useEffect(() => {
+    if (!API_KEY) {
+      console.warn("警告：未偵測到 VITE_GEMINI_API_KEY。");
+    } else {
+      console.log("API Key 已載入，長度為:", API_KEY.length);
+    }
+  }, []);
+
   const onFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = () => { setImage(reader.result); setStatus('IDLE'); setResult(null); setError(null); };
+      reader.onload = () => { 
+        setImage(reader.result); 
+        setStatus('IDLE'); 
+        setResult(null); 
+        setError(null); 
+      };
       reader.readAsDataURL(file);
     }
   };
 
   const handleStart = async () => {
+    if (!image) return;
     setStatus('PROCESSING');
+    setError(null);
     try {
       const data = await recognizeBoard(image);
       setResult(data);
@@ -84,9 +109,9 @@ function App() {
         </div>
         <input type="file" ref=${fileInputRef} className="hidden" accept="image/*" onChange=${onFileChange} />
 
-        ${image && status === 'IDLE' && html`
+        ${image && (status === 'IDLE' || status === 'ERROR' || status === 'SUCCESS') && html`
           <button onClick=${handleStart} className="w-full bg-red-700 text-white py-4 rounded-2xl font-bold text-lg shadow-lg active:scale-95 transition-all">
-            開始識別棋局
+            ${status === 'SUCCESS' ? '重新識別' : '開始識別棋局'}
           </button>
         `}
 
