@@ -1,70 +1,100 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import { GoogleGenAI } from "@google/genai";
 
 const html = htm.bind(React.createElement);
 
-// 讀取 Key 並去除空格
+// 讀取並徹底清潔 API Key
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY ? import.meta.env.VITE_GEMINI_API_KEY.trim() : "";
 
-function App() {
-  const [image, setImage] = useState(null);
-  const [status, setStatus] = useState('READY');
-  const [res, setRes] = useState('');
+const SYSTEM_INSTRUCTION = `你是一個專業的象棋棋盤識別助手。
+你的任務是分析象棋棋盤照片並轉換為 FEN 格式。
+請嚴格遵守象棋規則：紅方大寫 (KABNRCP)，黑方小寫 (kabnrcp)，9x10 網格。
+只返回 JSON 格式，包含 fen 和 explanation 欄位。`;
 
-  const handleRun = async () => {
-    if (!API_KEY) { 
-      alert("Error: Vercel Settings 搵唔到 VITE_GEMINI_API_KEY！");
-      return; 
+async function recognizeBoard(base64Image) {
+  if (!API_KEY) throw new Error("API Key 未設定，請檢查 Vercel 設定。");
+
+  // 初始化 Gemini
+  const genAI = new GoogleGenAI(API_KEY);
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-1.5-flash",
+    systemInstruction: SYSTEM_INSTRUCTION 
+  });
+
+  try {
+    const result = await model.generateContent({
+      contents: [{
+        role: "user",
+        parts: [
+          { inlineData: { data: base64Image.split(',')[1], mimeType: 'image/jpeg' } },
+          { text: "請識別這張象棋照片，並返回 FEN JSON。" }
+        ]
+      }],
+      generationConfig: { responseMimeType: "application/json" }
+    });
+
+    const text = await result.response.text();
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error("Gemini 分析失敗: " + error.message);
+  }
+}
+
+function App() {
+  const [status, setStatus] = useState('IDLE');
+  const [image, setImage] = useState(null);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const onFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => { setImage(reader.result); setStatus('IDLE'); setResult(null); setError(null); };
+      reader.readAsDataURL(file);
     }
-    setStatus('LOADING');
+  };
+
+  const handleStart = async () => {
+    setStatus('PROCESSING');
     try {
-      const genAI = new GoogleGenAI(API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const result = await model.generateContent([
-        "請識別圖中象棋佈局並給出 FEN。",
-        { inlineData: { data: image.split(',')[1], mimeType: "image/jpeg" } }
-      ]);
-      setRes(result.response.text());
-      setStatus('DONE');
-    } catch (e) {
-      alert("分析出錯: " + e.message);
-      setStatus('READY');
+      const data = await recognizeBoard(image);
+      setResult(data);
+      setStatus('SUCCESS');
+    } catch (err) {
+      setError(err.message);
+      setStatus('ERROR');
     }
   };
 
   return html`
-    <div className="p-10 max-w-lg mx-auto bg-white shadow-2xl rounded-2xl mt-10">
-      <h1 className="text-2xl font-bold text-red-700 mb-4">象棋識別 v2.0 (穩定版)</h1>
-      <p className="text-xs text-gray-400 mb-4">Key 狀態: ${API_KEY ? "✅ 已讀取" : "❌ 未讀取"}</p>
-      
-      <input type="file" accept="image/*" onChange=${(e) => {
-        const reader = new FileReader();
-        reader.onload = () => setImage(reader.result);
-        reader.readAsDataURL(e.target.files[0]);
-      }} className="mb-4 block w-full text-sm text-gray-500" />
+    <div className="min-h-screen flex flex-col items-center p-6 md:p-12">
+      <div className="w-full max-w-md">
+        <h1 className="text-3xl font-bold text-red-900 text-center mb-2">象棋識別助手</h1>
+        <p className="text-gray-500 text-center mb-8 text-sm">影張相，AI 即刻幫你排好 FEN 棋譜</p>
 
-      ${image && html`<img src=${image} className="w-full rounded mb-4 shadow" />`}
-      
-      <button 
-        onClick=${handleRun} 
-        disabled=${!image || status === 'LOADING'}
-        className="w-full bg-red-600 text-white p-4 rounded-xl font-bold disabled:bg-gray-300"
-      >
-        ${status === 'LOADING' ? "Gemini 分析中..." : "開始分析"}
-      </button>
-
-      ${res && html`
-        <div className="mt-6 p-4 bg-gray-100 rounded border border-gray-300">
-          <p className="font-bold text-sm mb-2 text-gray-700">分析結果：</p>
-          <div className="text-sm font-mono break-all">${res}</div>
+        <div 
+          onClick=${() => fileInputRef.current.click()}
+          className="aspect-square w-full bg-white border-4 border-dashed border-gray-200 rounded-3xl flex items-center justify-center cursor-pointer overflow-hidden shadow-inner mb-6"
+        >
+          ${image ? html`<img src=${image} className="w-full h-full object-contain" />` : html`<div className="text-center text-gray-400 font-medium">📷 點擊拍攝或上傳棋盤</div>`}
         </div>
-      `}
-    </div>
-  `;
-}
+        <input type="file" ref=${fileInputRef} className="hidden" accept="image/*" onChange=${onFileChange} />
 
-const container = document.getElementById('root');
-const root = createRoot(container);
-root.render(React.createElement(App));
+        ${image && status === 'IDLE' && html`
+          <button onClick=${handleStart} className="w-full bg-red-700 text-white py-4 rounded-2xl font-bold text-lg shadow-lg active:scale-95 transition-all">
+            開始識別棋局
+          </button>
+        `}
+
+        ${status === 'PROCESSING' && html`
+          <div className="text-center py-4 text-red-700 font-bold animate-pulse">Gemini 正在精確識別棋子位置...</div>
+        `}
+
+        ${result && html`
+          <div className="mt-6 space-y-4">
+            <div className="bg-gray-900 p-5 rounded-2xl shadow-inner border border-gray-700">
+              <p className="text-xs text-gray-500 uppercas
