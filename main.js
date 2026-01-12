@@ -24,7 +24,7 @@ async function recognizeBoard(base64Image) {
   // 初始化 Gemini (官方正確名稱)
   const genAI = new GoogleGenerativeAI(API_KEY);
   const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
+    model: "gemini-3-flash",
     systemInstruction: SYSTEM_INSTRUCTION 
   });
 
@@ -143,3 +143,4 @@ function App() {
 }
 
 createRoot(document.getElementById('root')).render(React.createElement(App));
+
